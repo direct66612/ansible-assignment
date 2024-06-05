@@ -1,0 +1,4 @@
+[machineB]
+192.168.64.3 ansible_password=ubuntu ansible_user=ubuntu
+[machineC]
+192.168.64.5 ansible_password=debian ansible_user=debian
