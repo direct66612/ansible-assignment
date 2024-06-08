@@ -1,18 +1,51 @@
 - name: configure and install nginx machineC , install and configure ip tables
   hosts: machineC
   become: true
-  vars_files:
-    - passwords.yml
-  vars:
-    ansible_become_pass: "{{ host2_password }}"
   tasks:
     - name: install nginx
       apt:
            name: nginx
            state: present
-    - name: configure nginx
-      template: 
-        src: /etc/nginx/nginx.conf
+    - name: Configure Nginx
+      copy:
+        content: |
+          user www-data;
+          worker_processes auto;
+          pid /run/nginx.pid;
+
+          events {
+              worker_connections 768;
+          }
+
+          http {
+
+              sendfile on;
+              tcp_nopush on;
+              tcp_nodelay on;
+              keepalive_timeout 65;
+              types_hash_max_size 2048;
+
+              include /etc/nginx/mime.types;
+              default_type application/octet-stream;
+
+
+              ssl_protocols TLSv1 TLSv1.1 TLSv1.2;
+              ssl_prefer_server_ciphers on;
+
+  
+
+              access_log /var/log/nginx/access.log;
+              error_log /var/log/nginx/error.log;
+              server {
+                  listen 8080;
+                  server_name localhost;
+
+                  location / {
+                      root /var/www/html;
+                      index index.html;
+                  }
+              }
+          }
         dest: /etc/nginx/nginx.conf
       notify: restart nginx  
     - name: Install and configure IPtables

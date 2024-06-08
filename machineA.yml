@@ -2,21 +2,170 @@
   hosts: localhost
   become: true
   become_user: root
+  vars:
+    domain_name: "kjhomerenovation.ca" 
+    certbot_email: "direct66612@gmail.com"
+    ssh_users:
+      - username: debian
+        key_comment: "debian"
+      - username: ubuntu
+        key_comment: "ubuntu"
+    ssh_hosts:
+      - hostname: 192.168.64.5
+        key_comment: "debian"
+      - hostname: 192.168.64.3
+        key_comment: "ubuntu"
   tasks:
+    - name: Check if SSH key pair exists for the user on Machine A
+      stat:
+        path: /home/debian/.ssh/ans_rsa
+      register: ssh_key_exists
+    - name: Generate SSH key pair for each user on Machine A
+      command: ssh-keygen -t rsa -b 4096 -C "debian" -f "/home/debian/.ssh/ans_rsa" -N ""
+      when: ssh_key_exists.stat.exists == False
+      register: ssh_key_results
+
+    - name: SSH copy public key to Machine B and C
+      become: yes
+      command: ssh-copy-id -i /home/debian/.ssh/ans_rsa.pub {{ item.0.username }}@{{ item.1.hostname }}
+      loop: "{{ ssh_users | zip(ssh_hosts) }}"
+
+    - name: Add SSH public key to authorized_keys for each user on Machine B and C
+      become: yes
+      command: scp /home/debian/.ssh/ans_rsa.pub {{ item.0.username }}@{{ item.1.hostname }}:/home/{{ item.0.username }}/.ssh/authorized_keys
+      loop: "{{ ssh_users | zip(ssh_hosts) }}"
+   
     - name: install HAProxy
       apt:
         name: haproxy
         state: present
-    - name: configure HAProxy
-      template: 
-         src: /etc/haproxy/haproxy.cfg
-         dest: /etc/haproxy/haproxy.cfg
+      with_items:
+        - build-essential
+        - libssl-dev
+        - zlib1g-dev
+        - openssl
+        - gcc
+    - name: Install Certbot
+      package:
+        name: certbot
+        state: present
+    - name: install nginx
+      apt:
+        name: nginx
+        state: present
+    - name: Configure Nginx
+      copy:
+        content: |
+          user www-data;
+          worker_processes auto;
+          pid /run/nginx.pid;
+
+          events {
+              worker_connections 768;
+          }
+
+          http {
+
+              sendfile on;
+              tcp_nopush on;
+              tcp_nodelay on;
+              keepalive_timeout 65;
+              types_hash_max_size 2048;
+
+              include /etc/nginx/mime.types;
+              default_type application/octet-stream;
+
+
+              ssl_protocols TLSv1 TLSv1.1 TLSv1.2;
+              ssl_prefer_server_ciphers on;
+
+  
+
+              access_log /var/log/nginx/access.log;
+              error_log /var/log/nginx/error.log;
+              server {
+                  listen 8080;
+                  server_name localhost;
+             location / {
+                      root /var/www/html;
+                      index index.html test.html;
+                  }
+              }
+          }
+        dest: /etc/nginx/nginx.conf
+      notify:
+        - restart nginx
+    - name: Run Certbot to obtain SSL certificate
+      shell: "certbot certonly --standalone --agree-tos --non-interactive --email {{ certbot_email }} -d {{ domain_name }}"
       notify: restart HAProxy
-    - name: Install and configure IPtables
+
+    - name: Ensure Let's Encrypt directory exists
+      file:
+        path: "/etc/letsencrypt/live/{{ domain_name }}"
+        state: directory
+    - name: Create test.html file
+      copy:
+        content: |
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>Test Page</title>
+          </head>
+          <body>
+              <h1>Hello World!</h1>
+          </body>
+          </html>
+        dest: /var/www/html/test.html
+    - name: Configure HAProxy
+      copy:
+        content: |
+          global
+              log /dev/log    local0
+              log /dev/log    local1 notice
+              chroot /var/lib/haproxy
+              stats socket /run/haproxy/admin.sock mode 660 level admin expose-fd listeners
+              stats timeout 30s
+              user haproxy
+              group haproxy
+              daemon
+
+          defaults
+              log     global
+              mode    http
+              option  httplog
+              option  dontlognull
+              timeout connect 5000
+              timeout client  50000
+              timeout server  50000
+
+          frontend http_front
+              bind *:80
+              bind *:443 ssl crt /etc/letsencrypt/live/{{ domain_name }}/fullchain.pem
+              reqadd X-Forwarded-Proto:\ https
+              acl is_test_page path_beg -i /test.html
+              use_backend test_server if is_test_page
+              default_backend redirect_to_google
+
+          backend http_back
+              balance roundrobin
+              server machineB 192.168.64.3:8080 check
+              server machineC 192.168.64.5:8080 check
+
+          backend test_server
+              server machineA 192.168.64.4
+
+          backend redirect_to_google
+              redirect scheme https code 301 location https://www.google.com
+
+        dest: /etc/haproxy/haproxy.cfg
+      notify:
+        - restart HAProxy
+    - name: install and configure ip tables
       apt:
         name: iptables-persistent
         state: present
-      become: yes
 
     - name: Allow SSH connections
       iptables:
@@ -58,6 +207,10 @@
     - name: restart HAProxy
       service: 
         name: haproxy
+        state: restarted
+    - name: restart nginx
+      service: 
+        name: nginx
         state: restarted
 
 

@@ -1,4 +1,4 @@
 [machineB]
-192.168.64.3 ansible_password=ubuntu ansible_user=ubuntu
+192.168.64.3 ansible_user=ubuntu ansible_ssh_private_key_file=/home/debian/.ssh/ans_rsa
 [machineC]
-192.168.64.5 ansible_password=debian ansible_user=debian
+192.168.64.5 ansible_user=debian ansible_ssh_private_key_file=/home/debian/.ssh/ans_rsa 
