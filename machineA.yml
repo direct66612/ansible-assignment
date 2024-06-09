@@ -141,7 +141,7 @@
               timeout server  50000
 
           frontend http_front
-              bind *:80
+              bind *:8080
               bind *:443 ssl crt /etc/letsencrypt/live/{{ domain_name }}/fullchain.pem
               reqadd X-Forwarded-Proto:\ https
               acl is_test_page path_beg -i /test.html
@@ -175,11 +175,11 @@
         jump: ACCEPT
       become: yes
 
-    - name: Allow HTTP connections (port 80)
+    - name: Allow HTTP connections (port 8080)
       iptables:
         chain: INPUT
         protocol: tcp
-        destination_port: 80
+        destination_port: 8080
         jump: ACCEPT
       become: yes
 
